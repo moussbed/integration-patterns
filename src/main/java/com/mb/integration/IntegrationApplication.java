@@ -1,5 +1,6 @@
 package com.mb.integration;
 
+import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
@@ -11,7 +12,6 @@ import org.springframework.integration.dsl.IntegrationFlow;
 import org.springframework.integration.dsl.MessageChannels;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
-import org.springframework.messaging.MessageHeaders;
 import org.springframework.messaging.support.MessageBuilder;
 
 import java.time.Instant;
@@ -29,14 +29,13 @@ public class IntegrationApplication {
 				String.format("hola todo el mundo @ %s !", Instant.now());
 	}
 	@Bean
+	MessageChannel greetings(){
+		return MessageChannels.direct().getObject();
+	}
+	@Bean
 	IntegrationFlow flow(){
 		return IntegrationFlow
-				.from(new MessageSource<String>() {
-					@Override
-					public Message<String> receive() {
-						return MessageBuilder.withPayload(text()).build();
-					}
-				}, poller-> poller.poller(pm-> pm.fixedRate(100)))
+				.from(greetings())
 				.filter(String.class, new GenericSelector<String>() {
 					@Override
 					public boolean accept(String source) {
@@ -54,6 +53,14 @@ public class IntegrationApplication {
 					return null;
 				})
 				.get();
+	}
+
+	@Bean
+	ApplicationRunner runner(){
+		return  args ->{
+			for (var i=0; i<10; i++)
+				greetings().send(MessageBuilder.withPayload(text()).build());
+		};
 	}
 
 
