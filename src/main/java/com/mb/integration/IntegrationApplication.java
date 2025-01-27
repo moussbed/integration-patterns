@@ -1,21 +1,23 @@
 package com.mb.integration;
 
+import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
+import org.springframework.integration.annotation.IntegrationComponentScan;
+import org.springframework.integration.annotation.MessagingGateway;
 import org.springframework.integration.core.GenericHandler;
 import org.springframework.integration.core.GenericTransformer;
-import org.springframework.integration.core.MessageSource;
 import org.springframework.integration.dsl.IntegrationFlow;
-import org.springframework.integration.dsl.context.IntegrationFlowContext;
-import org.springframework.messaging.Message;
-import org.springframework.messaging.support.MessageBuilder;
+import org.springframework.integration.dsl.MessageChannels;
+import org.springframework.messaging.MessageChannel;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
-import java.util.Set;
 
+
+@IntegrationComponentScan
 @SpringBootApplication
 public class IntegrationApplication {
 
@@ -23,47 +25,50 @@ public class IntegrationApplication {
 		SpringApplication.run(IntegrationApplication.class, args);
 	}
 
-	private static String text(){
+	 static String text(){
 		return Math.random()> .5 ?
 				String.format("Hello World @  %s !", Instant.now()) :
 				String.format("Hola todo el mundo @ %s !", Instant.now());
 	}
 
-	@Component
-	static class MyMessageSource implements MessageSource<String>{
-		@Override
-		public Message<String> receive() {
-			return MessageBuilder.withPayload(text()).build();
-		}
+	@Bean
+	 MessageChannel greetings(){
+		return MessageChannels.direct().getObject();
 	}
 
-
-	private static IntegrationFlow buildIntegrationFlow(MyMessageSource messageSource, int milliseconds, String filterText, String name){
+	 @Bean
+	 IntegrationFlow buildIntegrationFlow(){
 		return IntegrationFlow
-				.from(messageSource,
-						sourcePollingChannelAdapterSpec ->
-								sourcePollingChannelAdapterSpec.poller(
-										pollerFactory -> pollerFactory.fixedRate(milliseconds)))
-				.filter(String.class, source -> source.contains(filterText))
+				.from(greetings())
+				.filter(String.class, source -> source.contains("Hola"))
 				.transform((GenericTransformer<String, String>) String::toUpperCase)
 				.handle((GenericHandler<String>) (payload, headers) -> {
-					System.out.printf("[%s] The payload is %s%n",name, payload);
+					System.out.printf("The payload is %s%n", payload);
 					return null;
 				})
 				.get();
 	}
+}
 
-	@Bean
-	ApplicationRunner runner (MyMessageSource messageSource, IntegrationFlowContext context){
-		return args -> {
-			Set<IntegrationFlow> integrationFlows = Set.of(buildIntegrationFlow(messageSource, 1000, "Hola", "Flow-00"),
-					buildIntegrationFlow(messageSource, 3000, "Hello","Flow-01" ));
+@Component
+class Runner implements ApplicationRunner{
 
-			integrationFlows.forEach(integrationFlow ->
-					context.registration(integrationFlow).register().start());
+	private final GreetingsClient greetingsClient;
 
-		};
+	Runner(GreetingsClient greetingsClient) {
+		this.greetingsClient = greetingsClient;
 	}
 
-
+	@Override
+	public void run(ApplicationArguments args) throws Exception {
+		for (int i = 0; i < 100; i++) {
+			greetingsClient.greet(IntegrationApplication.text());
+		}
+	}
 }
+
+@MessagingGateway(defaultRequestChannel = "greetings")
+interface GreetingsClient{
+	void greet(String text);
+}
+
