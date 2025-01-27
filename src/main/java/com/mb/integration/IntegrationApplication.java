@@ -7,7 +7,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.integration.annotation.IntegrationComponentScan;
 import org.springframework.integration.annotation.MessagingGateway;
-import org.springframework.integration.core.GenericHandler;
+import org.springframework.integration.channel.DirectChannel;
 import org.springframework.integration.core.GenericTransformer;
 import org.springframework.integration.dsl.IntegrationFlow;
 import org.springframework.integration.dsl.MessageChannels;
@@ -15,6 +15,7 @@ import org.springframework.messaging.MessageChannel;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
+import java.util.stream.Stream;
 
 
 @IntegrationComponentScan
@@ -32,20 +33,22 @@ public class IntegrationApplication {
 	}
 
 	@Bean
-	 MessageChannel greetings(){
+	 MessageChannel greetingsRequests(){
+		return MessageChannels.direct().getObject();
+	}
+
+	@Bean
+	DirectChannel greetingsReplies(){
 		return MessageChannels.direct().getObject();
 	}
 
 	 @Bean
 	 IntegrationFlow buildIntegrationFlow(){
 		return IntegrationFlow
-				.from(greetings())
+				.from(greetingsRequests())
 				.filter(String.class, source -> source.contains("Hola"))
 				.transform((GenericTransformer<String, String>) String::toUpperCase)
-				.handle((GenericHandler<String>) (payload, headers) -> {
-					System.out.printf("The payload is %s%n", payload);
-					return null;
-				})
+				.channel(greetingsReplies())
 				.get();
 	}
 }
@@ -54,20 +57,31 @@ public class IntegrationApplication {
 class Runner implements ApplicationRunner{
 
 	private final GreetingsClient greetingsClient;
+	private final DirectChannel greetingsReplies ;
 
-	Runner(GreetingsClient greetingsClient) {
+	Runner(GreetingsClient greetingsClient, DirectChannel greetingsReplies) {
 		this.greetingsClient = greetingsClient;
-	}
+        this.greetingsReplies = greetingsReplies;
+    }
 
 	@Override
 	public void run(ApplicationArguments args) throws Exception {
-		for (int i = 0; i < 100; i++) {
-			greetingsClient.greet(IntegrationApplication.text());
-		}
+		this.subscriber();
+		this.producer();
+
+	}
+
+	private  void producer(){
+		Stream.generate(()-> IntegrationApplication.text())
+						.forEach(text-> greetingsClient.greet(text));
+	}
+
+	private void subscriber(){
+		greetingsReplies.subscribe(message -> System.out.printf("The payload is %s%n", message.getPayload()));
 	}
 }
 
-@MessagingGateway(defaultRequestChannel = "greetings")
+@MessagingGateway(defaultRequestChannel = "greetingsRequests")
 interface GreetingsClient{
 	void greet(String text);
 }
