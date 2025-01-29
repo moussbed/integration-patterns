@@ -37,7 +37,7 @@ import java.util.function.Consumer;
 @SpringBootApplication
 public class IntegrationApplication {
 
-    private static final String PATH = "${HOME}/development/projects/java/integration-patterns";
+    private static final String PATH = "${HOME}";
     static final String REQUESTS_CHANNEL = "requests";
     //static final String ERRORS_CHANNEL = "errors";
     private static final String UPPERCASE_IN = "uin";
