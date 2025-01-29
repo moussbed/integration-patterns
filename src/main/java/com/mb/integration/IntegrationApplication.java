@@ -4,78 +4,46 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.integration.annotation.IntegrationComponentScan;
-import org.springframework.integration.channel.DirectChannel;
+import org.springframework.integration.annotation.ServiceActivator;
 import org.springframework.integration.core.GenericHandler;
-import org.springframework.integration.core.GenericSelector;
-import org.springframework.integration.core.GenericTransformer;
 import org.springframework.integration.dsl.IntegrationFlow;
-import org.springframework.integration.dsl.MessageChannels;
 import org.springframework.integration.file.dsl.FileInboundChannelAdapterSpec;
 import org.springframework.integration.file.dsl.FileWritingMessageHandlerSpec;
 import org.springframework.integration.file.dsl.Files;
 import org.springframework.integration.file.transformer.FileToStringTransformer;
-import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessageHeaders;
+import org.springframework.messaging.handler.annotation.Header;
+import org.springframework.messaging.handler.annotation.Headers;
+import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.util.SystemPropertyUtils;
 
 import java.io.File;
-import java.io.IOException;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.time.Instant;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
+import java.util.Map;
 
 
 @IntegrationComponentScan
 @SpringBootApplication
 public class IntegrationApplication {
 
+    static final String REQUESTS_CHANNEL = "requests";
     private static final String PATH = "${HOME}";
+    private static final String UPPERCASE_IN = "uin";
+    private static final String UPPERCASE_OUT = "uout";
 
     public static void main(String[] args) {
         SpringApplication.run(IntegrationApplication.class, args);
     }
 
-    static String text() {
-        return Math.random() > .5 ?
-                String.format("Hello World @  %s !", Instant.now()) :
-                String.format("Hola todo el mundo @ %s !", Instant.now());
-    }
-
-    @Bean
-    MessageChannel fileRequests() {
-        return MessageChannels.direct().getObject();
-    }
-
-    @Bean
-    DirectChannel fileReplies() {
-        return MessageChannels.direct().getObject();
-    }
 
     @Bean
     IntegrationFlow buildIntegrationFlow() {
-        return IntegrationFlow.from(fileRequests())
-                  .filter(String.class, source -> source.contains("Hola"))
-                  .transform((GenericTransformer<String, String>) String::toUpperCase)
-//                .filter(File.class, source -> {
-//                    try (final Stream<String> lines = java.nio.file.Files.lines(Paths.get(source.getPath()))) {
-//                        return lines.anyMatch(line -> line.contains("Hola"));
-//                    } catch (IOException e) {
-//                        throw new RuntimeException(e);
-//                    }
-//                })
-//                .transform((GenericTransformer<File, File>) source -> {
-//                    try(final Stream<String> lines = java.nio.file.Files.lines(Path.of(source.getPath()))) {
-//                        var modifiedLines = lines.map(line -> String.format("%s todo el mundo @ %s !", line, Instant.now()));
-//                        final Path tempFile = java.nio.file.Files.createTempFile("tempFile", "txt");
-//                        return java.nio.file.Files.write(tempFile, modifiedLines.collect(Collectors.toSet())).toFile();
-//                    } catch (IOException e) {
-//                        throw new RuntimeException(e);
-//                    }
-//                })
-                .channel(fileReplies()).get();
+        return IntegrationFlow
+                .from(REQUESTS_CHANNEL)
+                .filter(String.class, source -> source.contains("Hola"))
+                .channel(UPPERCASE_IN)
+                .get();
     }
+
 
     @Bean
     IntegrationFlow inboundFileSystemFlow() {
@@ -86,10 +54,20 @@ public class IntegrationApplication {
                 .from(fileInboundChannelAdapter, p -> p.poller(pm -> pm.fixedRate(1000)))
                 .transform(new FileToStringTransformer())
                 .handle((GenericHandler<String>) (payload, headers) -> {
-                    headers.forEach((key, value)-> System.out.println(key +"="+ value));
-                    return payload;
+                     headers.forEach((key, value) -> System.out.println(key + "=" + value));
+                     return payload;
                 })
-                .channel(fileRequests()).get();
+                .channel(REQUESTS_CHANNEL)
+                .get();
+    }
+
+    @ServiceActivator(inputChannel = UPPERCASE_IN, outputChannel = UPPERCASE_OUT)
+    public String upperCase(@Headers Map<String, Object> headers,
+                            @Header(MessageHeaders.ID) String contentType,
+                            @Payload String payload) {
+        System.out.printf(" The ID is %s%n", contentType);
+        headers.forEach((k, v) -> System.out.println(k + "=>" + v));
+        return payload.toUpperCase();
     }
 
     @Bean
@@ -97,9 +75,9 @@ public class IntegrationApplication {
         String path = PATH + "/out";
         var directory = new File(SystemPropertyUtils.resolvePlaceholders(path));
         FileWritingMessageHandlerSpec fileWritingMessageHandler = Files.outboundAdapter(directory).autoCreateDirectory(true);
-        return IntegrationFlow.from(fileReplies())
+        return IntegrationFlow
+                .from(UPPERCASE_OUT)
                 .handle(fileWritingMessageHandler)
                 .get();
     }
 }
-
