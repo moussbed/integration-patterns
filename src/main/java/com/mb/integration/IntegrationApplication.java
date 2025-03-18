@@ -1,30 +1,42 @@
 package com.mb.integration;
 
+import org.postgresql.jdbc.PgConnection;
+import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.integration.annotation.IntegrationComponentScan;
+import org.springframework.integration.annotation.ServiceActivator;
 import org.springframework.integration.core.GenericHandler;
 import org.springframework.integration.dsl.IntegrationFlow;
+import org.springframework.integration.dsl.MessageChannels;
 import org.springframework.integration.jdbc.JdbcMessageHandler;
 import org.springframework.integration.jdbc.JdbcPollingChannelAdapter;
 import org.springframework.integration.jdbc.MessagePreparedStatementSetter;
-import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.integration.jdbc.channel.PgConnectionSupplier;
+import org.springframework.integration.jdbc.channel.PostgresChannelMessageTableSubscriber;
+import org.springframework.integration.jdbc.channel.PostgresSubscribableChannel;
+import org.springframework.integration.jdbc.store.JdbcChannelMessageStore;
+import org.springframework.integration.jdbc.store.channel.PostgresChannelMessageStoreQueryProvider;
+import org.springframework.integration.support.MessageBuilder;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.messaging.Message;
+import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessageHeaders;
 import org.springframework.stereotype.Component;
 
 import javax.sql.DataSource;
 import java.math.BigDecimal;
+import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.UUID;
 import java.util.logging.Logger;
+import java.util.stream.IntStream;
 
 
 @IntegrationComponentScan
@@ -35,6 +47,43 @@ public class IntegrationApplication {
     public static void main(String[] args) throws InterruptedException {
         SpringApplication.run(IntegrationApplication.class, args);
 		Thread.currentThread().join();
+    }
+
+    @Bean
+    JdbcChannelMessageStore jdbcMessageStore(DataSource dataSource) {
+        var jdbcChannelMessageStore = new JdbcChannelMessageStore(dataSource);
+        jdbcChannelMessageStore.setChannelMessageStoreQueryProvider(new PostgresChannelMessageStoreQueryProvider());
+        return jdbcChannelMessageStore;
+    }
+
+    @Bean
+    MessageChannel outputChannel(JdbcChannelMessageStore messageStore) {
+        return MessageChannels.queue(messageStore, "bootiful-group").getObject();
+    }
+    @Bean
+    ApplicationRunner runner(MessageChannel outputChannel) {
+        return args -> {
+            IntStream.range(0, 30).forEach(i -> outputChannel.send(MessageBuilder.withPayload("Hello Postgres " + i).build()));
+        };
+    }
+
+    @Bean
+    PostgresChannelMessageTableSubscriber subscriber(DataSourceProperties dsp) throws SQLException {
+       var supplier =  DriverManager.getConnection(
+               dsp.determineUrl(), dsp.determineUsername(), dsp.determinePassword())
+               .unwrap(PgConnection.class);
+      PgConnectionSupplier pgConnectionSupplier = () -> supplier;
+        return new PostgresChannelMessageTableSubscriber(pgConnectionSupplier);
+    }
+
+    @Bean
+    MessageChannel in(PostgresChannelMessageTableSubscriber subscriber, JdbcChannelMessageStore messageStore) {
+        return new PostgresSubscribableChannel(messageStore, "bootiful-group", subscriber);
+    }
+
+    @ServiceActivator(inputChannel = "in")
+    public void handleMessage(Message<String> message) {
+        log.info("Received Message : " + message.getPayload());
     }
 
     @Bean
@@ -77,6 +126,7 @@ public class IntegrationApplication {
                         return payload;
                     }
                 })
+                .aggregate()
                 .handle(outbound)
                 .get();
     }
