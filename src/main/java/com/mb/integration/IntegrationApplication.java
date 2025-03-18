@@ -6,14 +6,19 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.integration.annotation.IntegrationComponentScan;
 import org.springframework.integration.core.GenericHandler;
 import org.springframework.integration.dsl.IntegrationFlow;
+import org.springframework.integration.jdbc.JdbcMessageHandler;
 import org.springframework.integration.jdbc.JdbcPollingChannelAdapter;
+import org.springframework.integration.jdbc.MessagePreparedStatementSetter;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageHeaders;
 import org.springframework.stereotype.Component;
 
 import javax.sql.DataSource;
 import java.math.BigDecimal;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
@@ -47,18 +52,32 @@ public class IntegrationApplication {
         return jdbcPollingChannelAdapter;
     }
     @Bean
-    IntegrationFlow integrationFlow(JdbcPollingChannelAdapter jdbcPollingChannelAdapter){
-        return IntegrationFlow.from(jdbcPollingChannelAdapter, poller-> poller.poller(pm->pm.fixedRate(1000)))
-                .handle(new GenericHandler<List<AccountStatement>>() {
+    JdbcMessageHandler jdbcMessageHandler(DataSource dataSource) {
+        JdbcMessageHandler jdbcMessageHandler = new JdbcMessageHandler(dataSource, "update account_statement set status = 'CREATED' where id = ?");
+        jdbcMessageHandler.setPreparedStatementSetter(new MessagePreparedStatementSetter() {
+            @Override
+            public void setValues(PreparedStatement ps, Message<?> requestMessage) throws SQLException {
+                var accountStatement = (AccountStatement)requestMessage.getPayload();
+                ps.setObject(1, accountStatement.id());
+                ps.execute();
+            }
+        });
+        return jdbcMessageHandler;
+    }
+    @Bean
+    IntegrationFlow integrationFlow(JdbcPollingChannelAdapter inbound, JdbcMessageHandler outbound){
+        return IntegrationFlow.from(inbound, poller-> poller.poller(pm->pm.fixedRate(1000)))
+                .split()
+                .handle(new GenericHandler<AccountStatement>() {
                     @Override
-                    public Object handle(List<AccountStatement> accountStatementList, MessageHeaders headers) {
-                        for (AccountStatement payload : accountStatementList) {
+                    public Object handle(AccountStatement payload, MessageHeaders headers) {
                             log.info("*".repeat(50));
                             log.info(payload.toString());
-                        }
-                        return null;
+                            headers.forEach((k,v)->{log.info(k+":"+v);});
+                        return payload;
                     }
                 })
+                .handle(outbound)
                 .get();
     }
 
