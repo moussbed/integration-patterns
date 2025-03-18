@@ -1,5 +1,6 @@
 package com.mb.integration;
 
+import org.apache.commons.net.ftp.FTPFile;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -12,7 +13,11 @@ import org.springframework.integration.dsl.PollerFactory;
 import org.springframework.integration.file.FileReadingMessageSource;
 import org.springframework.integration.file.FileWritingMessageHandler;
 import org.springframework.integration.file.dsl.Files;
+import org.springframework.integration.file.remote.session.SessionFactory;
 import org.springframework.integration.file.support.FileExistsMode;
+import org.springframework.integration.ftp.dsl.Ftp;
+import org.springframework.integration.ftp.inbound.FtpInboundFileSynchronizingMessageSource;
+import org.springframework.integration.ftp.session.DefaultFtpSessionFactory;
 import org.springframework.messaging.MessageHeaders;
 
 import java.io.File;
@@ -30,21 +35,64 @@ public class IntegrationApplication {
 		Thread.currentThread().join();
     }
 
+//    @Bean
+//    IntegrationFlow inboundFileFlow(@Value("${HOME}/Desktop/in") File in,
+//                                    @Value("${HOME}/Desktop/out") File out) {
+//        FileReadingMessageSource inboundFileAdapter = Files.inboundAdapter(in)
+//                .autoCreateDirectory(true)
+//                .recursive(true)
+//                .getObject();
+//        FileWritingMessageHandler outboundFileAdapter = Files.outboundAdapter(out)
+//                .autoCreateDirectory(true)
+//                .fileNameGenerator(message -> Long.toString(System.currentTimeMillis()))
+//                .fileExistsMode(FileExistsMode.FAIL)
+//                .deleteSourceFiles(true)
+//                .getObject();
+//        return IntegrationFlow
+//                .from(inboundFileAdapter, c -> c.poller(p -> PollerFactory.fixedRate(Duration.ofSeconds(1))))
+//                .filter(File.class, source -> source.isFile() && source.getName().endsWith(".csv"))
+//                .handle(new GenericHandler<File>() {
+//                    @Override
+//                    public Object handle(File payload, MessageHeaders headers) {
+//                        log.info(String.format("Received: %s", payload.getAbsolutePath()));
+//                        headers.forEach((k, v) -> log.info(String.format("%s: %s", k, v)));
+//                        return payload;
+//                    }
+//                })
+//                .handle(outboundFileAdapter)
+//                .get();
+//    }
+
     @Bean
-    IntegrationFlow inboundFileFlow(@Value("${HOME}/Desktop/in") File in,
-                                    @Value("${HOME}/Desktop/out") File out) {
-        FileReadingMessageSource inboundFileAdapter = Files.inboundAdapter(in)
-                .autoCreateDirectory(true)
-                .recursive(true)
+    SessionFactory<FTPFile> sessionFactory() {
+        DefaultFtpSessionFactory ftpSessionFactory = new DefaultFtpSessionFactory();
+        ftpSessionFactory.setHost("localhost");
+        ftpSessionFactory.setPort(21);
+        ftpSessionFactory.setUsername("bedril");
+        ftpSessionFactory.setPassword("1234");
+        return ftpSessionFactory;
+    }
+
+    @Bean
+    IntegrationFlow inboundFtpFlow(
+            @Value("${HOME}/Desktop/files/local") File ftpLocal,
+            SessionFactory<FTPFile> ftpSessionFactory
+    ) {
+        FtpInboundFileSynchronizingMessageSource ftpMessageSource = Ftp.inboundAdapter(ftpSessionFactory)
+                .autoCreateLocalDirectory(true)
+                .localDirectory(ftpLocal)
+                .deleteRemoteFiles(true)
                 .getObject();
-        FileWritingMessageHandler outboundFileAdapter = Files.outboundAdapter(out)
+
+        var outboundFtpAdapter = Ftp.outboundAdapter(ftpSessionFactory)
                 .autoCreateDirectory(true)
+                .temporaryRemoteDirectory("temp")
+                .remoteDirectory("processed")
                 .fileNameGenerator(message -> Long.toString(System.currentTimeMillis()))
-                .fileExistsMode(FileExistsMode.FAIL)
-                .deleteSourceFiles(true)
                 .getObject();
+
         return IntegrationFlow
-                .from(inboundFileAdapter, c -> c.poller(p -> PollerFactory.fixedRate(Duration.ofSeconds(1))))
+                .from(ftpMessageSource)
                 .filter(File.class, source -> source.isFile() && source.getName().endsWith(".csv"))
                 .handle(new GenericHandler<File>() {
                     @Override
@@ -54,7 +102,7 @@ public class IntegrationApplication {
                         return payload;
                     }
                 })
-                .handle(outboundFileAdapter)
+                .handle(outboundFtpAdapter)
                 .get();
     }
 
