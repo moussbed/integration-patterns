@@ -1,6 +1,8 @@
 package com.mb.integration;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.amqp.core.*;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
@@ -27,6 +29,7 @@ import java.io.Serializable;
 import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Random;
 import java.util.logging.Logger;
 
@@ -66,7 +69,6 @@ public class IntegrationApplication {
 //    public void listen(@Payload  Map<String,String> payload) {
 //        log.info("Message read from RabbitMQ: " + payload);
 //    }
-
     @Bean
     MessageChannel requests() {
         return MessageChannels.direct().getObject();
@@ -107,7 +109,17 @@ public class IntegrationApplication {
                 .handle(new GenericHandler<Object>() {
                     @Override
                     public Object handle(Object payload, MessageHeaders headers) {
-                        log.info("Message read from RabbitMQ: " + new String((byte[]) payload, StandardCharsets.UTF_8));
+                        final String message = new String((byte[]) payload, StandardCharsets.UTF_8);
+                        log.info("Message read from RabbitMQ: " + message);
+                        try {
+                            CustomMessage  customMessage = new ObjectMapper().readValue(message, CustomMessage.class);
+                            if(Objects.nonNull(customMessage)) {
+                                log.info("Message: " + customMessage.message() + " Priority: " + customMessage.priority() + " Secret: " + customMessage.secret());
+                            }
+                        } catch (JsonProcessingException e) {
+                            log.severe("Error while processing message: " + e.getMessage());
+                        }
+
                         headers.forEach((k, v) -> log.info(k + ":" + v));
                         return null;
                     }
