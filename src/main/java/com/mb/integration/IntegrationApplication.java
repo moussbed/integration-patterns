@@ -4,10 +4,11 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.amqp.core.*;
-import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
+import org.springframework.aot.hint.RuntimeHintsRegistrar;
+import org.springframework.beans.factory.InitializingBean;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -31,6 +32,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Random;
+import java.util.Set;
 import java.util.logging.Logger;
 
 
@@ -161,5 +163,28 @@ class RabbitMQConfiguration {
     @Bean
     public Jackson2JsonMessageConverter producerJackson2MessageConverter() {
         return new Jackson2JsonMessageConverter();
+    }
+}
+
+@Configuration
+class InfraConfiguration {
+
+    @Bean
+    InitializingBean initializeRabbitMqBroker(AmqpAdmin admin) {
+        return ()-> Set.of("basic", "bank")
+                .forEach(name-> setup(admin, name));
+    }
+
+    private void setup(AmqpAdmin admin, String name) {
+        var  queue = QueueBuilder.durable(name+".queue").build();
+        var exchange = ExchangeBuilder.directExchange(name +".exchange")
+                .durable(true).build();
+        var binding = BindingBuilder
+                .bind(queue)
+                .to(exchange)
+                .with(name +".routingKey").noargs();
+        admin.declareQueue(queue);
+        admin.declareExchange(exchange);
+        admin.declareBinding(binding);
     }
 }
