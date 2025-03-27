@@ -1,23 +1,15 @@
-# Getting Started
+## Starting RabbitMQ with Streams Enabled
+Let's start a RabbitMQ Docker container:
+```shell
+docker run -it --rm --name rabbitmq -p 5552:5552 \
+-e RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS='-rabbitmq_stream advertised_host localhost' \
+rabbitmq:3.9
+```
+Streams ship as a core plugin in RabbitMQ 3.9, so we have to make sure this plugin is enabled. 
+Open a new terminal tab and execute the following command:
+```shell
+docker exec rabbitmq rabbitmq-plugins enable rabbitmq_stream
+```
+Follow to dive deep, follow this link https://www.rabbitmq.com/blog/2021/07/19/rabbitmq-streams-first-application
 
-### Reference Documentation
-For further reference, please consider the following sections:
-
-* [Official Apache Maven documentation](https://maven.apache.org/guides/index.html)
-* [Spring Boot Maven Plugin Reference Guide](https://docs.spring.io/spring-boot/3.4.2/maven-plugin)
-* [Create an OCI image](https://docs.spring.io/spring-boot/3.4.2/maven-plugin/build-image.html)
-* [Spring Integration Test Module Reference Guide](https://docs.spring.io/spring-integration/reference/testing.html)
-* [Spring Integration](https://docs.spring.io/spring-boot/3.4.2/reference/messaging/spring-integration.html)
-
-### Guides
-The following guides illustrate how to use some features concretely:
-
-* [Integrating Data](https://spring.io/guides/gs/integration/)
-
-### Maven Parent overrides
-
-Due to Maven's design, elements are inherited from the parent POM to the project POM.
-While most of the inheritance is fine, it also inherits unwanted elements like `<license>` and `<developers>` from the parent.
-To prevent this, the project POM contains empty overrides for these elements.
-If you manually switch to a different parent and actually want the inheritance, you need to remove those overrides.
 
